@@ -65,7 +65,7 @@ test("desktop scans current-vault or external folders, honors exclusions and pro
     await fs.writeFile(root + "/" + name, "fixture");
   const visited = [];
   const source = new DesktopReadOnlySource({
-    lstat: (path) => fs.lstat(path), open: (path, flags) => fs.open(path, flags),
+    stat: (path) => fs.stat(path), open: (path, flags) => fs.open(path, flags),
     readdir: (path) => { visited.push(path); return fs.readdir(path); },
   });
   assert.deepEqual((await source.list(root, false, [])).map((x) => x.path), [root + "/one.note", root + "/skip.note"]);
@@ -160,4 +160,25 @@ test("source changes during range reads are rejected and handles close", async (
     }, close: async () => { closed = true; await h.close(); } };
   } }, statRevision(stat));
   await assert.rejects(source.head(), /changed while reading/); assert.equal(closed, true);
+});
+
+test("desktop follows linked notebooks and folders, skips dangling links and scans a linked cycle once", async (t) => {
+  const root = await fixture(t), outside = await fixture(t);
+  await fs.mkdir(outside + "/Folder");
+  await fs.writeFile(outside + "/linked.note", notebook());
+  await fs.writeFile(outside + "/Folder/inside.note", notebook());
+  await fs.writeFile(root + "/local.note", notebook());
+  await fs.symlink(outside + "/linked.note", root + "/linked.note");
+  await fs.symlink(outside + "/Folder", root + "/Folder");
+  await fs.symlink(root + "/missing.note", root + "/dangling.note");
+  await fs.symlink(root, outside + "/Folder/loop");
+  const source = new DesktopReadOnlySource(fs);
+  assert.deepEqual((await source.list(root, true, [])).map((x) => x.path),
+    [root + "/Folder/inside.note", root + "/linked.note", root + "/local.note"]);
+  assert.deepEqual((await source.list(root, false, [])).map((x) => x.path), [root + "/linked.note", root + "/local.note"]);
+  assert.deepEqual((await source.list(root + "/linked.note", false, [])).map((x) => x.path), [root + "/linked.note"]);
+  const opened = await source.open(root + "/linked.note");
+  assert.equal(opened.descriptor.pages.length, 2);
+  assert.equal(opened.descriptor.revision, await source.revision(outside + "/linked.note"));
+  opened.close();
 });

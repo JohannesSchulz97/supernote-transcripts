@@ -8,7 +8,8 @@ import type { NotebookCheckOptions, OpenNotebook, ReadOnlySource } from "./types
 /** Only read operations are exposed to this adapter. Node is loaded when the
  * desktop source is constructed, so mobile plugin loading does not load fs. */
 export interface DesktopReadFS {
-  lstat(path: string): Promise<Stats>;
+  /** Follows symbolic links, so linked notebooks and folders are read as their targets. */
+  stat(path: string): Promise<Stats>;
   readdir(path: string): Promise<string[]>;
   open(path: string, flags: "r"): Promise<FileHandle>;
 }
@@ -107,7 +108,7 @@ export class DesktopReadOnlySource implements ReadOnlySource {
   async list(folder: string, recursive: boolean, exclude: string[]) {
     const root = normalizeDesktopSource(folder);
     const out: { path: string; size: number; mtime: number }[] = [];
-    const rootStat = await this.fs.lstat(root);
+    const rootStat = await this.fs.stat(root);
     if (rootStat.isFile()) {
       if (!root.toLowerCase().endsWith(".note"))
         throw new Error("Selected source is not a notebook or folder.");
@@ -116,6 +117,9 @@ export class DesktopReadOnlySource implements ReadOnlySource {
     }
     if (!rootStat.isDirectory())
       throw new Error("Selected source has an unsupported filesystem type.");
+    // Linked folders are followed; a folder reached twice (a link cycle or two
+    // links to one target) is scanned once so no notebook is listed twice.
+    const visited = new Set<string>([`${rootStat.dev}:${rootStat.ino}`]);
     const walk = async (path: string, relative: string, depth: number) => {
       if (depth > 64) throw new Error("Source nesting exceeds the safe scan depth.");
       for (const name of await this.fs.readdir(path)) {
@@ -125,10 +129,19 @@ export class DesktopReadOnlySource implements ReadOnlySource {
         const rel = relative ? relative + "/" + name : name;
         if (excludedRelative(rel, exclude)) continue;
         const next = path.replace(/\/+$/, "") + "/" + name;
-        const stat = await this.fs.lstat(next);
-        if (stat.isSymbolicLink()) continue;
+        let stat: Stats;
+        try { stat = await this.fs.stat(next); }
+        catch (error) {
+          // A dangling link has no notebook to read; any other failure is real.
+          if ((error as NodeJS.ErrnoException)?.code === "ENOENT") continue;
+          throw error;
+        }
         if (stat.isDirectory()) {
-          if (recursive) await walk(next, rel, depth + 1);
+          if (!recursive) continue;
+          const key = `${stat.dev}:${stat.ino}`;
+          if (visited.has(key)) continue;
+          visited.add(key);
+          await walk(next, rel, depth + 1);
         } else if (stat.isFile() && name.toLowerCase().endsWith(".note")) {
           out.push({ path: next, size: stat.size, mtime: stat.mtimeMs });
         }
@@ -139,7 +152,7 @@ export class DesktopReadOnlySource implements ReadOnlySource {
   }
 
   async revision(path: string) {
-    const stat = await this.fs.lstat(normalizeDesktopSource(path));
+    const stat = await this.fs.stat(normalizeDesktopSource(path));
     if (!stat.isFile()) throw new Error("Selected source is not a regular notebook.");
     return revisionOf(stat);
   }
@@ -155,7 +168,7 @@ export class DesktopReadOnlySource implements ReadOnlySource {
     path = normalizeDesktopSource(path);
     if (!path.toLowerCase().endsWith(".note"))
       throw new Error("Selected source is not a notebook.");
-    const stat = await this.fs.lstat(path);
+    const stat = await this.fs.stat(path);
     if (!stat.isFile()) throw new Error("Selected source is not a regular notebook.");
     const revision = revisionOf(stat);
     let pass = "Reading notebook";

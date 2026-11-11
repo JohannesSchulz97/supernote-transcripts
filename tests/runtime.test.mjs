@@ -4497,3 +4497,47 @@ test("archived notebooks follow support relocation while ordinary transcript des
   assert.equal(f.files.get(state.output),"archived transcript");assert.equal(JSON.stringify(state.pages),pages);
   assert.doesNotThrow(()=>f.plugin.assertStateReady());
 });
+test("moved notebook reuses results from its earlier identity and adopts its transcript in the chosen folder", async () => {
+  const f = fixture(2);
+  sharing(f, "nomad");
+  await f.plugin.update();
+  const paid = f.calls.length;
+  assert.ok(paid > 0);
+  const deviceText = f.files.get("Mirror/a.md");
+  // Another device's rule produced Reflection/a.md; this desktop starts fresh
+  // under a different source identity and its default output folder.
+  f.files.set("Reflection", "folder");
+  f.app.vault.adapter.rename("Mirror/a.md", "Reflection/a.md");
+  f.plugin.store.notebooks = {};
+  f.plugin.store.history = [];
+  f.plugin.config.rules[0].sharedId = "desktop-rule";
+  f.plugin.config.rules[0].output = "Supernote Transcripts";
+  await f.plugin.update();
+  assert.equal(f.calls.length, paid, "identical pages must not be recognized again");
+  assert.equal(f.plugin.store.notebooks[source].output, "Supernote Transcripts/a.md");
+  f.plugin.config.rules[0].output = "Reflection";
+  await f.plugin.update();
+  const state = f.plugin.store.notebooks[source];
+  assert.equal(f.calls.length, paid);
+  assert.equal(state.error, undefined);
+  assert.equal(state.status, "current");
+  assert.equal(state.output, "Reflection/a.md");
+  assert.equal(f.files.has("Supernote Transcripts/a.md"), false);
+  assert.deepEqual(parsePageMarkers(f.files.get("Reflection/a.md")).map(m => m.pageId), ["native:1", "native:2"]);
+  const backup = f.plugin.store.history.find(path => path.endsWith("-replaced-transcript.md"));
+  assert.ok(backup?.startsWith("_supernote/History/"));
+  assert.equal(f.files.get(backup), deviceText);
+});
+test("an unrelated note at the chosen destination is never replaced", async () => {
+  const f = fixture(2);
+  await f.plugin.update();
+  f.files.set("Moved", "folder");
+  f.files.set("Moved/a.md", "My own note");
+  f.plugin.config.rules[0].output = "Moved";
+  await f.plugin.update();
+  const state = f.plugin.store.notebooks[source];
+  assert.match(state.error ?? "", /not a transcript of this notebook/);
+  assert.equal(f.files.get("Moved/a.md"), "My own note");
+  assert.equal(state.output, "Mirror/a.md");
+  assert.ok(f.files.has("Mirror/a.md"));
+});

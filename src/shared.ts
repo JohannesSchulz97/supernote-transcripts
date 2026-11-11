@@ -171,9 +171,11 @@ export class SharedNotebookCache {
     return files.filter((p) => p.startsWith(`${folder}/`) &&
       !p.slice(folder.length + 1).includes("/") && p.endsWith(".md")).sort(lexical);
   }
+  private async resultKey(query: SharedQuery): Promise<string> {
+    return sharedHash(JSON.stringify([query.pageId, query.fingerprint, query.recipe]));
+  }
   private async resultFolder(query: SharedQuery): Promise<string> {
-    const key = await sharedHash(JSON.stringify([query.pageId, query.fingerprint, query.recipe]));
-    return `${this.folder(query.notebookId)}/results/${key}`;
+    return `${this.folder(query.notebookId)}/results/${await this.resultKey(query)}`;
   }
   async saveResult(query: SharedQuery, text: string, recognition?: RecognitionMetadata): Promise<SharedResult> {
     if (!queryOK(query) || typeof text !== "string" || !text.trim()) throw new Error("Invalid successful shared result.");
@@ -194,18 +196,42 @@ export class SharedNotebookCache {
     }
     return { ...payload, kind: "result", version: 1, recordId, path };
   }
-  async findResult(query: SharedQuery): Promise<CacheMatch> {
+  /**
+   * Finds results for this exact page content and recipe. With
+   * `otherNotebooks`, a miss for this notebook also checks results stored
+   * under other notebook identities: page IDs are native to the notebook file
+   * and the fingerprint covers the page content, so an identical page whose
+   * source path or rule changed can reuse its paid result. Each returned
+   * record keeps its original `notebookId`.
+   */
+  async findResult(query: SharedQuery, options: { otherNotebooks?: boolean } = {}): Promise<CacheMatch> {
     if (!queryOK(query)) throw new Error("Invalid shared cache query.");
+    const own = await this.findIn(await this.resultFolder(query), query.notebookId, query);
+    if (own.chosen || !options.otherNotebooks || !await this.io.exists(this.root)) return own;
+    const key = await this.resultKey(query);
+    let invalidRecords = own.invalidRecords;
+    const matches: SharedResult[] = [];
+    for (const folder of [...(await this.io.list(this.root)).folders].sort(lexical)) {
+      const notebookId = folder.slice(folder.lastIndexOf("/") + 1);
+      if (!folder.startsWith(`${this.root}/`) || !HASH.test(notebookId) || notebookId === query.notebookId) continue;
+      const found = await this.findIn(`${folder}/results/${key}`, notebookId, query);
+      invalidRecords += found.invalidRecords;
+      if (found.chosen) matches.push(found.chosen, ...found.alternatives);
+    }
+    matches.sort((a, b) => a.createdAt - b.createdAt || lexical(a.deviceId, b.deviceId) || lexical(a.recordId, b.recordId));
+    return { chosen: matches[0], alternatives: matches.slice(1), invalidRecords };
+  }
+  private async findIn(resultFolder: string, notebookId: string, query: SharedQuery): Promise<CacheMatch> {
     const matches: SharedResult[] = [];
     let invalidRecords = 0;
     const seen = new Set<string>();
-    for (const path of await this.files(await this.resultFolder(query))) {
+    for (const path of await this.files(resultFolder)) {
       try {
         const r = decode(await this.io.read(path));
         if (r.kind !== "result" || r.version !== 1 || !queryOK(r) ||
             typeof r.text !== "string" || !r.text.trim() || !HASH.test(r.textHash) ||
             !nonempty(r.deviceId) || !time(r.createdAt) || !nonempty(r.nonce) || !HASH.test(r.recordId) ||
-            r.notebookId !== query.notebookId || await sharedHash(r.text) !== r.textHash ||
+            r.notebookId !== notebookId || await sharedHash(r.text) !== r.textHash ||
             await sharedHash(JSON.stringify(resultPayload(r))) !== r.recordId ||
             !path.slice(path.lastIndexOf("/") + 1).startsWith(r.recordId)) throw new Error("Invalid shared result.");
         if (r.pageId !== query.pageId || r.fingerprint !== query.fingerprint || r.recipe !== query.recipe || seen.has(r.recordId)) continue;

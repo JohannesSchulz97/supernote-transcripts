@@ -59,6 +59,7 @@ import { PublicationReceipts, canAdvancePublication, canAdoptPublication, type R
 import { hydratePublicationCache } from "./publication-cache";
 import { installUI } from "./ui";
 import { installPageLinks } from "./page-links-ui";
+import { parsePageMarkers } from "./page-links.mjs";
 import { resolveNotePage, resolveNotePages, notePageUrl, isManagedTranscript } from "./page-navigation";
 import { OriginalPagePreview } from "./page-preview";
 import { responseText, pagesFromRange, selectedPageNumbers, documentText } from "./core.mjs";
@@ -2557,7 +2558,7 @@ export default class SupernoteTranscripts extends Plugin implements Controller {
       const destination = state.outputOverride ?? entry.output;
       validateDestination(destination);
       if (state.output !== destination)
-        await this.relocateOutput(state, destination, true);
+        await this.relocateOutput(state, destination, true, descriptor.pages.map(page => page.id));
       let before = clone(state);
       state.lastCheckMode=descriptorCheckMode(descriptor.checkMode);
       if(this.automaticRun&&!this.manualSources.has(entry.path))state.lastAutomaticCheck=checkedAt;
@@ -2711,7 +2712,9 @@ export default class SupernoteTranscripts extends Plugin implements Controller {
         }
         for(const page of descriptor.pages){
           if(state.pages[page.id]?.fingerprint===page.fingerprint)continue;
-          const result=(await shared.findResult({notebookId:sharedId,pageId:page.id,fingerprint:page.fingerprint,recipe:resolved.recipe})).chosen;
+          // A notebook whose path or rule changed keeps its page IDs; reuse an
+          // identical page's result from its earlier identity instead of paying again.
+          const result=(await shared.findResult({notebookId:sharedId,pageId:page.id,fingerprint:page.fingerprint,recipe:resolved.recipe},{otherNotebooks:true})).chosen;
           if(result){state.pages[page.id]={fingerprint:page.fingerprint,text:result.text,recipe:resolved.recipe,number:page.number,...(result.recognition?{recognition:result.recognition}:{}),...(isEmptyPage(result.text)?{blank:true}:{})};delete state.pageIssues?.[page.id];}
         }
         state.profileOutdated=profileNeedsRefresh(state,resolved.recipe);
@@ -3450,12 +3453,14 @@ export default class SupernoteTranscripts extends Plugin implements Controller {
     state: NotebookState,
     destination: string,
     retainModified = false,
+    pageIds: readonly string[] = [],
   ) {
     if (state.output === destination) return;
     validateDestination(destination);
-    if (await this.app.vault.adapter.exists(destination))
+    if (await this.app.vault.adapter.exists(destination) &&
+        !await this.adoptExistingOutput(state, destination, pageIds))
       throw new Error(
-        "New destination already exists. Choose another output folder.",
+        "New destination already exists and is not a transcript of this notebook. Move or rename it, or choose another output folder.",
       );
     if (await this.app.vault.adapter.exists(state.output)) {
       try {
@@ -3472,6 +3477,39 @@ export default class SupernoteTranscripts extends Plugin implements Controller {
     }
     state.output = destination;
     await this.persist();
+  }
+  /**
+   * A chosen destination may already hold this notebook's transcript, for
+   * example one generated on another device or before the notebook's source
+   * path changed. When most of its page markers belong to this notebook and
+   * no other notebook owns the file, keep a copy in history and free the
+   * destination so this notebook's transcript moves there. Its page text is
+   * rebuilt from saved results, which also cover pages recognized elsewhere.
+   */
+  private async adoptExistingOutput(state: NotebookState, destination: string, pageIds: readonly string[]) {
+    const key = destination.toLocaleLowerCase();
+    if (Object.values(this.store.notebooks).some(other => other !== state &&
+        [other.output, other.outputOverride].some(path => path?.toLocaleLowerCase() === key))) return false;
+    const text = await this.app.vault.adapter.read(destination);
+    if (!isManagedTranscript(text)) return false;
+    const markers = parsePageMarkers(text);
+    const own = new Set([...pageIds, ...state.order, ...state.desired.map(page => page.id)]);
+    if (!markers.length || markers.filter(marker => own.has(marker.pageId)).length * 2 < markers.length) return false;
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const name = `${stamp}-${crypto.randomUUID().slice(0, 8)}-replaced-transcript.md`;
+    let backup: string;
+    try { backup = (await this.historyIdentity(state)).path.replace(/Previous version\.md$/, name); }
+    catch {
+      const title = destination.split("/").pop()!.replace(/\.md$/i, "");
+      backup = `${this.paths.history}/${title}--${state.id.slice(0, 12)}/${name}`;
+    }
+    await this.ensureFolder(backup);
+    await this.app.vault.adapter.write(backup, text);
+    if (await this.app.vault.adapter.read(backup) !== text)
+      throw new Error("The existing transcript could not be backed up. It was left in place.");
+    this.store.history.push(backup);
+    await this.app.vault.adapter.remove(destination);
+    return true;
   }
   private async transcribe(
     image: string,
