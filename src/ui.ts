@@ -15,6 +15,7 @@ import {
   joinBrowserPath,
   normalizeBrowserPath,
   parentBrowserPath,
+  resolveBrowserEntry,
 } from "./browser.mjs";
 import { availableModalHeight } from "./viewport.mjs";
 import { DEFAULT_CLEANUP_PROMPT } from "./cleanup.mjs";
@@ -3554,6 +3555,7 @@ class MirrorsModal extends Modal {
             type?: string;
             isDirectory?: () => boolean;
             isFile?: () => boolean;
+            isSymbolicLink?: () => boolean;
           }
       )[];
       const mapped = await Promise.all(
@@ -3572,7 +3574,9 @@ class MirrorsModal extends Modal {
               /* Unknown non-note entries are hidden. */
             }
           }
-          const entryType = browserEntryType(item, type);
+          const resolved = this.isDesktop() ? await resolveBrowserEntry(item, path, (p: string) => fs.stat(p)) : item;
+          if (!resolved) return null;
+          const entryType = browserEntryType(resolved, type);
           if (!entryType) return null;
           return { name, path, type: entryType };
         }),
