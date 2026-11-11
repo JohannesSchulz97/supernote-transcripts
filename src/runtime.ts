@@ -2559,6 +2559,15 @@ export default class SupernoteTranscripts extends Plugin implements Controller {
       validateDestination(destination);
       if (state.output !== destination)
         await this.relocateOutput(state, destination, true, descriptor.pages.map(page => page.id));
+      // A notebook that has never published here (new, or whose source path
+      // changed) may find its own transcript already at the destination, e.g.
+      // one generated on another device under an earlier identity. Adopt it
+      // instead of reporting it as manually edited. A transcript with a
+      // publication receipt for this identity is left to receipt adoption, and
+      // anything else is still left for the ownership check.
+      else if (!state.publishedHash && await this.app.vault.adapter.exists(destination) &&
+          !await this.hasPublicationReceipt(publicationId, destination))
+        await this.adoptExistingOutput(state, destination, descriptor.pages.map(page => page.id));
       let before = clone(state);
       state.lastCheckMode=descriptorCheckMode(descriptor.checkMode);
       if(this.automaticRun&&!this.manualSources.has(entry.path))state.lastAutomaticCheck=checkedAt;
@@ -3486,6 +3495,12 @@ export default class SupernoteTranscripts extends Plugin implements Controller {
    * destination so this notebook's transcript moves there. Its page text is
    * rebuilt from saved results, which also cover pages recognized elsewhere.
    */
+  private async hasPublicationReceipt(publicationId: string | undefined, path: string) {
+    const io = this.sharedIO();
+    if (!io || !publicationId) return false;
+    const text = await this.app.vault.adapter.read(path);
+    return !!await new PublicationReceipts(io, this.paths.shared).findHash(publicationId, await hash(text));
+  }
   private async adoptExistingOutput(state: NotebookState, destination: string, pageIds: readonly string[]) {
     const key = destination.toLocaleLowerCase();
     if (Object.values(this.store.notebooks).some(other => other !== state &&

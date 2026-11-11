@@ -4541,3 +4541,33 @@ test("an unrelated note at the chosen destination is never replaced", async () =
   assert.equal(state.output, "Mirror/a.md");
   assert.ok(f.files.has("Mirror/a.md"));
 });
+test("a new notebook adopts its own transcript already at its destination instead of reporting a manual edit", async () => {
+  const f = fixture(2);
+  sharing(f, "nomad");
+  await f.plugin.update();
+  const paid = f.calls.length, deviceText = f.files.get("Mirror/a.md");
+  // The same notebook now arrives from a different source identity whose
+  // destination already holds the transcript generated elsewhere.
+  f.plugin.store.notebooks = {};
+  f.plugin.store.history = [];
+  f.plugin.config.rules[0].sharedId = "desktop-rule";
+  await f.plugin.update();
+  const state = f.plugin.store.notebooks[source];
+  assert.equal(state.error, undefined);
+  assert.equal(state.status, "current");
+  assert.equal(state.output, "Mirror/a.md");
+  assert.equal(f.calls.length, paid);
+  assert.deepEqual(parsePageMarkers(f.files.get("Mirror/a.md")).map(m => m.pageId), ["native:1", "native:2"]);
+  const backup = f.plugin.store.history.find(path => path.endsWith("-replaced-transcript.md"));
+  assert.equal(f.files.get(backup), deviceText);
+});
+test("a new notebook never adopts another notebook's transcript at its destination", async () => {
+  const f = fixture(2);
+  await f.plugin.update();
+  const foreign = f.files.get("Mirror/a.md").replace(/native%3A(\d)/g, "native%3Aother$1");
+  f.files.set("Mirror/a.md", foreign);
+  f.plugin.store.notebooks = {};
+  await f.plugin.update();
+  assert.match(f.plugin.store.notebooks[source].error ?? "", /manually edited or has no ownership record/);
+  assert.equal(f.files.get("Mirror/a.md"), foreign);
+});
