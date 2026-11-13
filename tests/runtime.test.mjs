@@ -4571,3 +4571,24 @@ test("a new notebook never adopts another notebook's transcript at its destinati
   assert.match(f.plugin.store.notebooks[source].error ?? "", /manually edited or has no ownership record/);
   assert.equal(f.files.get("Mirror/a.md"), foreign);
 });
+test("a claimed transcript stays untouched until its notebook publishes, and an edited one is no longer replaced", async () => {
+  const f = fixture(2);
+  sharing(f, "nomad");
+  await f.plugin.update();
+  const original = f.files.get("Mirror/a.md");
+  f.plugin.store.notebooks = {};
+  f.plugin.store.history = [];
+  f.plugin.config.rules[0].sharedId = "desktop-rule";
+  const publish = f.plugin.publish.bind(f.plugin);
+  f.plugin.publish = async () => { throw new Error("publish interrupted"); };
+  await f.plugin.update();
+  assert.equal(f.files.get("Mirror/a.md"), original, "a run that cannot publish leaves the claimed file alone");
+  assert.deepEqual(f.plugin.store.history, []);
+  f.plugin.publish = publish;
+  const edited = original + "\nMy note\n";
+  f.files.set("Mirror/a.md", edited);
+  await f.plugin.update();
+  const state = f.plugin.store.notebooks[source];
+  assert.equal(f.files.get(f.plugin.store.history.find(path => path.endsWith("-replaced-transcript.md"))), edited, "edits are kept in the backup");
+  assert.equal(state.status, "current");
+});

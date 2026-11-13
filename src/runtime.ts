@@ -2558,16 +2558,16 @@ export default class SupernoteTranscripts extends Plugin implements Controller {
       const destination = state.outputOverride ?? entry.output;
       validateDestination(destination);
       if (state.output !== destination)
-        await this.relocateOutput(state, destination, true, descriptor.pages.map(page => page.id));
+        await this.relocateOutput(state, destination, true, descriptor.pages.map(page => page.id), publicationId);
       // A notebook that has never published here (new, or whose source path
       // changed) may find its own transcript already at the destination, e.g.
-      // one generated on another device under an earlier identity. Adopt it
-      // instead of reporting it as manually edited. A transcript with a
+      // one generated on another device under an earlier identity. Claim it
+      // instead of reporting it as manually edited; it is replaced (after a
+      // backup) only when this notebook publishes. A transcript with a
       // publication receipt for this identity is left to receipt adoption, and
       // anything else is still left for the ownership check.
-      else if (!state.publishedHash && await this.app.vault.adapter.exists(destination) &&
-          !await this.hasPublicationReceipt(publicationId, destination))
-        await this.adoptExistingOutput(state, destination, descriptor.pages.map(page => page.id));
+      else if (!state.publishedHash)
+        await this.claimExistingOutput(state, destination, descriptor.pages.map(page => page.id), publicationId);
       let before = clone(state);
       state.lastCheckMode=descriptorCheckMode(descriptor.checkMode);
       if(this.automaticRun&&!this.manualSources.has(entry.path))state.lastAutomaticCheck=checkedAt;
@@ -3316,6 +3316,7 @@ export default class SupernoteTranscripts extends Plugin implements Controller {
       "A synced transcript would remove a protected manual section. Preserve the section in the incoming version before updating.");
   }
   private async publish(state: NotebookState, before: NotebookState, sharedId?:string) {
+    await this.releaseClaimedOutput(state, state.output);
     await this.checkOutput(state,before,sharedId);
     this.stage(
       "Saving Markdown",
@@ -3384,6 +3385,7 @@ export default class SupernoteTranscripts extends Plugin implements Controller {
   }
   private async checkOutput(state: NotebookState,before?:NotebookState,sharedId?:string,allowEditCapture=false) {
     this.assertOutputOwner(state.source,state.output,!!state.oneTime);
+    if (await this.claimedText(state, state.output) !== undefined) return;
     if(this.forcedPublication?.source===state.source&&this.forcedPublication.hash!==undefined&&
         !await this.app.vault.adapter.exists(state.output))throw Error("Transcript was removed during Force update. Review before forcing again.");
     if (await this.app.vault.adapter.exists(state.output)) {
@@ -3463,11 +3465,12 @@ export default class SupernoteTranscripts extends Plugin implements Controller {
     destination: string,
     retainModified = false,
     pageIds: readonly string[] = [],
+    publicationId?: string,
   ) {
     if (state.output === destination) return;
     validateDestination(destination);
     if (await this.app.vault.adapter.exists(destination) &&
-        !await this.adoptExistingOutput(state, destination, pageIds))
+        !await this.claimExistingOutput(state, destination, pageIds, publicationId))
       throw new Error(
         "New destination already exists and is not a transcript of this notebook. Move or rename it, or choose another output folder.",
       );
@@ -3481,41 +3484,66 @@ export default class SupernoteTranscripts extends Plugin implements Controller {
         await this.persist();
         return;
       }
+      // The moved transcript takes the claimed file's place.
+      await this.releaseClaimedOutput(state, destination);
       await this.ensureFolder(destination);
       await this.app.vault.adapter.rename(state.output, destination);
     }
     state.output = destination;
     await this.persist();
   }
+  /** Existing transcripts claimed for a notebook, keyed by source. They are
+   * only replaced when the notebook publishes, so a run that fails or has
+   * nothing to publish leaves the file untouched. */
+  private claimedOutputs = new Map<string, { output: string; text: string }>();
+  private async receiptMatches(publicationId: string | undefined, text: string) {
+    const io = this.sharedIO();
+    if (!io || !publicationId) return false;
+    return !!await new PublicationReceipts(io, this.paths.shared).findHash(publicationId, await hash(text));
+  }
   /**
    * A chosen destination may already hold this notebook's transcript, for
    * example one generated on another device or before the notebook's source
-   * path changed. When most of its page markers belong to this notebook and
-   * no other notebook owns the file, keep a copy in history and free the
-   * destination so this notebook's transcript moves there. Its page text is
-   * rebuilt from saved results, which also cover pages recognized elsewhere.
+   * path changed. When most of its page markers belong to this notebook, no
+   * other notebook owns the file and no publication receipt covers it, the
+   * file is claimed: at publication a copy is kept in history and this
+   * notebook's transcript, rebuilt from saved results (which also cover pages
+   * recognized elsewhere), takes its place.
    */
-  private async hasPublicationReceipt(publicationId: string | undefined, path: string) {
-    const io = this.sharedIO();
-    if (!io || !publicationId) return false;
-    const text = await this.app.vault.adapter.read(path);
-    return !!await new PublicationReceipts(io, this.paths.shared).findHash(publicationId, await hash(text));
-  }
-  private async adoptExistingOutput(state: NotebookState, destination: string, pageIds: readonly string[]) {
+  private async claimExistingOutput(state: NotebookState, destination: string, pageIds: readonly string[], publicationId?: string) {
+    if (!await this.app.vault.adapter.exists(destination)) return false;
     const key = destination.toLocaleLowerCase();
     if (Object.values(this.store.notebooks).some(other => other !== state &&
         [other.output, other.outputOverride].some(path => path?.toLocaleLowerCase() === key))) return false;
     const text = await this.app.vault.adapter.read(destination);
     if (!isManagedTranscript(text)) return false;
+    // Text that matches a publication receipt but not what this notebook
+    // published itself arrived through synchronization: receipt adoption owns it.
+    if (await hash(text) !== state.publishedHash && await this.receiptMatches(publicationId, text)) return false;
     const markers = parsePageMarkers(text);
     const own = new Set([...pageIds, ...state.order, ...state.desired.map(page => page.id)]);
     if (!markers.length || markers.filter(marker => own.has(marker.pageId)).length * 2 < markers.length) return false;
+    this.claimedOutputs.set(state.source, { output: destination, text });
+    return true;
+  }
+  /** The claimed text, if the file is still exactly as it was claimed. */
+  private async claimedText(state: NotebookState, output: string) {
+    const claim = this.claimedOutputs.get(state.source);
+    if (!claim || claim.output !== output) return undefined;
+    if (await this.app.vault.adapter.exists(output) &&
+        await this.app.vault.adapter.read(output) === claim.text) return claim.text;
+    this.claimedOutputs.delete(state.source);
+    return undefined;
+  }
+  private async releaseClaimedOutput(state: NotebookState, output: string) {
+    const text = await this.claimedText(state, output);
+    if (text === undefined) return;
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     const name = `${stamp}-${crypto.randomUUID().slice(0, 8)}-replaced-transcript.md`;
     let backup: string;
     try { backup = (await this.historyIdentity(state)).path.replace(/Previous version\.md$/, name); }
     catch {
-      const title = destination.split("/").pop()!.replace(/\.md$/i, "");
+      const title = output.split("/").pop()!.replace(/\.md$/i, "");
       backup = `${this.paths.history}/${title}--${state.id.slice(0, 12)}/${name}`;
     }
     await this.ensureFolder(backup);
@@ -3523,8 +3551,9 @@ export default class SupernoteTranscripts extends Plugin implements Controller {
     if (await this.app.vault.adapter.read(backup) !== text)
       throw new Error("The existing transcript could not be backed up. It was left in place.");
     this.store.history.push(backup);
-    await this.app.vault.adapter.remove(destination);
-    return true;
+    await this.app.vault.adapter.remove(output);
+    this.claimedOutputs.delete(state.source);
+    new Notice(`Replaced an existing transcript of this notebook. Any edits in it are kept in ${backup}.`);
   }
   private async transcribe(
     image: string,

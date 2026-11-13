@@ -46,7 +46,7 @@ async function fixture(t) {
   return normalizeDesktopSource(root);
 }
 const digest = (b) => createHash("sha256").update(b).digest("hex");
-const statRevision = (s) => `${s.mtimeMs}:${s.size}:${s.ctimeMs}:${s.ino}`;
+const statRevision = (s) => `${s.mtimeMs}:${s.size}:${s.ino}`;
 
 test("absolute Windows, UNC and POSIX paths normalize without accepting traversal or relative paths", () => {
   assert.equal(normalizeDesktopSource("C:\\Cloud Files\\Notes\\"), "C:/Cloud Files/Notes");
@@ -181,4 +181,49 @@ test("desktop follows linked notebooks and folders, skips dangling links and sca
   assert.equal(opened.descriptor.pages.length, 2);
   assert.equal(opened.descriptor.revision, await source.revision(outside + "/linked.note"));
   opened.close();
+});
+
+test("a looping or unreadable link is skipped instead of failing the whole scan", async (t) => {
+  const root = await fixture(t);
+  await fs.writeFile(root + "/local.note", notebook());
+  await fs.symlink(root + "/self", root + "/self");
+  const source = new DesktopReadOnlySource(fs);
+  assert.deepEqual((await source.list(root, true, [])).map((x) => x.path), [root + "/local.note"]);
+  const denied = new DesktopReadOnlySource({
+    ...fs, stat: (p) => p.endsWith("/Locked") ? Promise.reject(Object.assign(new Error("denied"), { code: "EACCES" })) : fs.stat(p),
+  });
+  await fs.mkdir(root + "/Locked");
+  assert.deepEqual((await denied.list(root, true, [])).map((x) => x.path), [root + "/local.note"]);
+  const broken = new DesktopReadOnlySource({ ...fs, stat: (p) => p.endsWith("/Locked") ? Promise.reject(Object.assign(new Error("io"), { code: "EIO" })) : fs.stat(p) });
+  await assert.rejects(broken.list(root, true, []), /io/);
+});
+
+test("folders are deduplicated by canonical path, and unusable inode numbers never hide folders", async (t) => {
+  const root = await fixture(t);
+  await fs.mkdir(root + "/A"); await fs.mkdir(root + "/B");
+  await fs.writeFile(root + "/A/a.note", notebook()); await fs.writeFile(root + "/B/b.note", notebook());
+  const zeroIno = async (p) => {
+    const real = await fs.stat(p);
+    return { dev: real.dev, ino: 0, size: real.size, mtimeMs: real.mtimeMs, isDirectory: () => real.isDirectory(), isFile: () => real.isFile() };
+  };
+  const withoutRealpath = new DesktopReadOnlySource({ stat: zeroIno, readdir: fs.readdir, open: fs.open });
+  assert.deepEqual((await withoutRealpath.list(root, true, [])).map((x) => x.path), [root + "/A/a.note", root + "/B/b.note"]);
+  await fs.symlink(root + "/A", root + "/Alias");
+  const source = new DesktopReadOnlySource(fs);
+  assert.deepEqual((await source.list(root, true, [])).map((x) => x.path), [root + "/A/a.note", root + "/B/b.note"]);
+});
+
+test("metadata-only changes while reading, as made by cloud file providers, do not fail a read", async (t) => {
+  const root = await fixture(t), path = root + "/one.note";
+  await fs.writeFile(path, notebook());
+  // Google Drive for desktop updates metadata (and so ctime) whenever a file is read.
+  const touchingFs = { ...fs, open: async (p, flag) => { const handle = await fs.open(p, flag);
+    await fs.chmod(p, 0o600); await fs.chmod(p, 0o644); return handle; } };
+  const source = new DesktopReadOnlySource(touchingFs);
+  const revision = await source.revision(path);
+  const opened = await source.open(path);
+  assert.equal(opened.descriptor.pages.length, 2);
+  assert.ok((await opened.render(1)).length > 0);
+  opened.close();
+  assert.equal(await source.revision(path), revision);
 });

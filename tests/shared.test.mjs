@@ -241,12 +241,13 @@ test("a moved notebook can opt in to reuse identical page results from its earli
   assert.equal(reused.chosen.notebookId, earlier);
   for (const change of [{ pageId: "native:2" }, { fingerprint: "edited" }, { recipe: await sharedHash("changed recipe") }])
     assert.equal((await desktop.findResult({ ...moved, ...change }, { otherNotebooks: true })).chosen, undefined);
-  // A tampered record in another identity is counted invalid, never reused.
+  // A tampered record in another identity is never reused, and its damage is
+  // not reported as this notebook's.
   const [path] = [...io.files.keys()].filter((p) => p.includes(earlier) && p.includes("/results/"));
   io.files.set(path, io.files.get(path).replace("Paid once", "Forged text"));
   const tampered = await desktop.findResult(moved, { otherNotebooks: true });
   assert.equal(tampered.chosen, undefined);
-  assert.equal(tampered.invalidRecords, 1);
+  assert.equal(tampered.invalidRecords, 0);
   // A result under the notebook's own identity wins without scanning others.
   await desktop.saveResult(moved, "Own result");
   assert.equal((await desktop.findResult(moved, { otherNotebooks: true })).chosen.text, "Own result");

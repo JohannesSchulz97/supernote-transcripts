@@ -178,6 +178,7 @@ export class SharedNotebookCache {
     return `${this.folder(query.notebookId)}/results/${await this.resultKey(query)}`;
   }
   async saveResult(query: SharedQuery, text: string, recognition?: RecognitionMetadata): Promise<SharedResult> {
+    this.resultIndex = undefined;
     if (!queryOK(query) || typeof text !== "string" || !text.trim()) throw new Error("Invalid successful shared result.");
     if (recognition !== undefined && !validRecognition(recognition)) throw new Error("Invalid shared recognition metadata.");
     // Whitelist fields; callers cannot leak profile credentials or local paths.
@@ -209,17 +210,32 @@ export class SharedNotebookCache {
     const own = await this.findIn(await this.resultFolder(query), query.notebookId, query);
     if (own.chosen || !options.otherNotebooks || !await this.io.exists(this.root)) return own;
     const key = await this.resultKey(query);
-    let invalidRecords = own.invalidRecords;
     const matches: SharedResult[] = [];
-    for (const folder of [...(await this.io.list(this.root)).folders].sort(lexical)) {
-      const notebookId = folder.slice(folder.lastIndexOf("/") + 1);
-      if (!folder.startsWith(`${this.root}/`) || !HASH.test(notebookId) || notebookId === query.notebookId) continue;
-      const found = await this.findIn(`${folder}/results/${key}`, notebookId, query);
-      invalidRecords += found.invalidRecords;
+    for (const [notebookId, keys] of await this.otherResultIndex()) {
+      if (notebookId === query.notebookId || !keys.has(key)) continue;
+      const found = await this.findIn(`${this.folder(notebookId)}/results/${key}`, notebookId, query);
       if (found.chosen) matches.push(found.chosen, ...found.alternatives);
     }
     matches.sort((a, b) => a.createdAt - b.createdAt || lexical(a.deviceId, b.deviceId) || lexical(a.recordId, b.recordId));
-    return { chosen: matches[0], alternatives: matches.slice(1), invalidRecords };
+    // Damaged records under other identities are not this notebook's to report.
+    return { chosen: matches[0], alternatives: matches.slice(1), invalidRecords: own.invalidRecords };
+  }
+  private resultIndex?: { at: number; entries: [string, Set<string>][] };
+  /** Which result keys each notebook identity holds, listed once per short
+   * window so a notebook with many missing pages does not rescan the cache. */
+  private async otherResultIndex(): Promise<[string, Set<string>][]> {
+    const now = this.now();
+    if (this.resultIndex && now - this.resultIndex.at < 30_000 && now >= this.resultIndex.at) return this.resultIndex.entries;
+    const entries: [string, Set<string>][] = [];
+    for (const folder of [...(await this.io.list(this.root)).folders].sort(lexical)) {
+      const notebookId = folder.slice(folder.lastIndexOf("/") + 1);
+      if (!folder.startsWith(`${this.root}/`) || !HASH.test(notebookId)) continue;
+      const results = `${folder}/results`;
+      if (!await this.io.exists(results)) continue;
+      entries.push([notebookId, new Set((await this.io.list(results)).folders.map(f => f.slice(f.lastIndexOf("/") + 1)))]);
+    }
+    this.resultIndex = { at: now, entries };
+    return entries;
   }
   private async findIn(resultFolder: string, notebookId: string, query: SharedQuery): Promise<CacheMatch> {
     const matches: SharedResult[] = [];
