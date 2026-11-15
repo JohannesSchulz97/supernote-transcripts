@@ -3996,6 +3996,197 @@
 .st-fullscreen-modal.st-desktop button.st-primary:not(:disabled):hover {
   color: contrast-color(var(--interactive-accent-hover));
 }
+
+.st-fullscreen-modal:is(.st-settings-screen, .st-source-settings-screen) {
+  --st-config-inset: clamp(12px, 3%, 24px);
+  --st-config-border: var(--background-modifier-border);
+  --st-config-surface: color-mix(in srgb, var(--background-secondary) 62%, var(--background-primary));
+}
+.st-fullscreen-modal:is(.st-settings-screen, .st-source-settings-screen) .st-body {
+  padding: 0 var(--st-config-inset) 16px;
+}
+.st-fullscreen-modal.st-source-settings-screen .st-body { padding-top: 12px; }
+.st-fullscreen-modal.st-settings-screen .st-settings-layout {
+  max-width: 720px;
+}
+.st-fullscreen-modal .st-settings-layout .st-settings-tabs {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  margin: 0 0 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--st-config-border);
+  border-radius: 0;
+  background: var(--background-primary);
+}
+.st-fullscreen-modal .st-settings-layout button.st-settings-tab {
+  min-height: 34px;
+  padding: 4px;
+  white-space: nowrap;
+  font-size: var(--font-ui-small, 14px);
+}
+.st-fullscreen-modal .st-settings-layout button.st-settings-tab.is-active {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+  border-color: var(--st-config-border);
+}
+.st-fullscreen-modal .st-settings-layout :focus-visible { scroll-margin-block: 56px 12px; }
+.st-fullscreen-modal .st-settings-layout .st-configuration-card,
+.st-fullscreen-modal.st-source-settings-screen .st-form > .st-configuration-card {
+  margin: 0 0 10px;
+  padding: 12px;
+  border: 1px solid var(--st-config-border);
+  border-radius: var(--radius-m, 8px);
+  background: var(--st-config-surface);
+}
+.st-fullscreen-modal .st-configuration-card > .st-section-heading,
+.st-fullscreen-modal .st-settings-action-row > .st-section-heading {
+  margin: 0 0 4px;
+  font-weight: 650;
+  font-size: var(--font-ui-medium, 16px);
+  line-height: 1.35;
+}
+.st-fullscreen-modal .st-settings-action-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+.st-fullscreen-modal .st-settings-action-row > .st-section-heading { margin: 0; }
+.st-fullscreen-modal :is(.st-configuration-card, .st-settings-layout) .st-setting-row {
+  padding: 4px 0;
+  border-bottom: 0;
+}
+.st-fullscreen-modal :is(.st-settings-layout, .st-source-settings-screen .st-form-layout) .st-setting-label {
+  min-height: 22px;
+}
+.st-fullscreen-modal .st-settings-layout .st-setting-row.st-check-row {
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
+  gap: 0 10px;
+  margin: 0;
+  padding-block: 4px;
+}
+.st-fullscreen-modal .st-settings-layout .st-check-row > .st-setting-info { grid-area: 1 / 2; }
+.st-fullscreen-modal .st-settings-layout .st-check-row > .st-setting-control { grid-area: 1 / 1; padding-top: 2px; }
+.st-fullscreen-modal .st-settings-layout .st-check-row input[type="checkbox"] { margin: 0; }
+.st-fullscreen-modal .st-configuration-card .st-setting-control > :is(input:not([type="checkbox"]), select),
+.st-fullscreen-modal .st-configuration-card :is(.st-default-output-controls, .st-support-folder-controls, .st-output-folder-controls) input {
+  min-height: 34px;
+}
+.st-fullscreen-modal .st-configuration-card :is(.st-default-output-controls, .st-support-folder-controls, .st-output-folder-controls) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+.st-fullscreen-modal .st-configuration-card :is(.st-default-output-controls, .st-support-folder-controls, .st-output-folder-controls) > input {
+  min-width: 0;
+  width: 100%;
+}
+.st-fullscreen-modal .st-configuration-card button.st-text-button { white-space: nowrap; }
+.st-fullscreen-modal :is(.st-settings-layout, .st-source-settings-screen .st-form-layout) .st-settings-disclosure {
+  margin: 0 0 10px;
+  padding: 7px 12px;
+  border-color: var(--st-config-border);
+  background: var(--st-config-surface);
+}
+.st-fullscreen-modal .st-settings-prompts .st-cleanup-defaults {
+  margin: 8px 0 0;
+  padding-inline: 0;
+  border: 0;
+  border-top: 1px solid var(--st-config-border);
+  border-radius: 0;
+}
+.st-fullscreen-modal .st-source-identity {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px 10px;
+  padding: 2px 0 12px;
+}
+.st-fullscreen-modal .st-source-identity .st-source-icon {
+  color: var(--text-accent);
+  margin-top: 4px;
+}
+.st-fullscreen-modal .st-source-identity :is(.st-source-title, .st-source-path) { margin: 0; overflow-wrap: anywhere; }
+.st-fullscreen-modal .st-source-identity .st-source-path { color: var(--text-muted); }
+.st-fullscreen-modal .st-configuration-card .st-source-header { padding: 0; }
+.st-fullscreen-modal .st-configuration-card .st-selection-choice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin: 4px 0 0;
+}
+.st-fullscreen-modal .st-configuration-card .st-selection-choice p { margin: 0; }
+.st-fullscreen-modal .st-settings-choices {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  min-width: 0;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--st-config-border);
+  border-radius: var(--radius-m, 8px);
+  background: var(--background-primary);
+}
+.st-fullscreen-modal .st-settings-choices label {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 30px;
+  place-items: center;
+  margin: 0;
+  padding: 4px;
+  border-radius: var(--radius-s, 4px);
+  color: var(--text-muted);
+  font-size: var(--font-ui-small, 14px);
+  line-height: 1.25;
+  text-align: center;
+  cursor: pointer;
+}
+.st-fullscreen-modal .st-settings-choices input[type="radio"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.st-fullscreen-modal .st-settings-choices label:hover,
+.st-fullscreen-modal .st-settings-choices label:has(input:checked) {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+.st-fullscreen-modal .st-settings-choices label:has(input:checked) {
+  box-shadow: inset 0 -2px var(--interactive-accent);
+  font-weight: 600;
+}
+.st-fullscreen-modal .st-settings-choices label:has(input:focus-visible) { outline: 2px solid var(--interactive-accent); }
+.st-fullscreen-modal .st-settings-choices label:has(input:disabled) { opacity: .6; cursor: default; }
+.st-fullscreen-modal .st-configuration-card .st-quality-summary { color: var(--text-muted); }
+.st-fullscreen-modal .st-settings-layout .st-setting-row.st-automatic-check-control { grid-template-columns: minmax(0, 1fr); }
+.st-fullscreen-modal .st-settings-layout .st-automatic-check-control .st-setting-label > span {
+  font-size: var(--font-ui-medium, 16px);
+  font-weight: 650;
+}
+@container (max-width: 380px) {
+  .st-fullscreen-modal .st-settings-layout .st-settings-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .st-fullscreen-modal .st-settings-layout :focus-visible { scroll-margin-block-start: 90px; }
+  .st-fullscreen-modal .st-configuration-card :is(.st-default-output-controls, .st-support-folder-controls, .st-output-folder-controls) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .st-fullscreen-modal .st-configuration-card :is(.st-default-output-controls, .st-support-folder-controls, .st-output-folder-controls) > button { justify-self: start; }
+}
+.st-fullscreen-modal:not(.st-desktop) .st-settings-choices label {
+  min-height: 44px;
+}
 .st-fullscreen-modal.st-workflow-screen:not(.st-desktop) .st-header button.st-icon-button,
 .st-fullscreen-modal.st-workflow-screen:not(.st-desktop) .st-row-controls button.st-icon-button {
   width: 48px;

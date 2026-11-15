@@ -51,6 +51,8 @@ try {
     const defaultFolder = settings.getByRole("textbox", { name: "Default transcript folder" });
     const toolbar = page.locator(".st-native-settings-toolbar");
     await defaultFolder.fill("Unsaved Folder");
+    await page.evaluate(() => window.__streamlinedFixture.controller.notify());
+    assert(await defaultFolder.evaluate(input => input === document.activeElement), `${viewport.platform}: background activity moved focus away from the settings draft`);
     await toolbar.getByRole("button", { name: "Open Sources" }).click();
     await settings.getByRole("heading", { name: "Sources", exact: true }).waitFor();
     await settings.getByRole("button", { name: "Back", exact: true }).click();

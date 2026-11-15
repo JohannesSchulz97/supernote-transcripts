@@ -29,7 +29,9 @@ try {
   await root.waitFor();
 
   await root.locator('button[aria-label="Settings"]').click();
-  const defaults = root.locator(".st-recognition-defaults");
+  await root.getByRole("tab", { name: "Recognition", exact: true }).click();
+  const defaults = root.locator(".st-settings-panel-recognition");
+  await defaults.getByText("Advanced recognition", { exact: true }).click();
   const formatting = defaults.getByLabel("Recognize handwriting formatting", { exact: true });
   const pageHeadings = root.locator(".st-settings-presentation").getByLabel("Show page headings in transcripts", { exact: true });
   if (!await formatting.isChecked()) throw Error("General handwriting formatting should default on.");
@@ -42,14 +44,23 @@ try {
   await root.locator('button[aria-label="Configure Journal"]').click();
   const mode = root.locator(".st-source-profile-mode input[type=checkbox]");
   await mode.check();
+  if (!await mode.evaluate(input => input === document.activeElement)) throw Error("Enabling source recognition overrides lost checkbox focus.");
+  await root.getByText("Advanced recognition", { exact: true }).click();
   const sourceFormat = root.locator(".st-source-profile-overrides").getByLabel("Handwriting formatting", { exact: true });
   const options = await sourceFormat.locator("option").allTextContents();
   if (JSON.stringify(options) !== JSON.stringify(["Use default (On)", "On", "Off"])) throw Error(`Unexpected source formatting options: ${JSON.stringify(options)}`);
   await sourceFormat.selectOption("off");
+  if (!(await sourceFormat.isVisible())) throw Error("The advanced source options closed when formatting changed.");
   await sourceFormat.selectOption("default");
   await sourceFormat.scrollIntoViewIfNeeded();
   await page.screenshot({ path: join(output, "nomad-source-recognition.png") });
   await mode.uncheck();
+  await root.getByText("Sync and Digests", { exact: true }).click();
+  const digestOverride = root.getByRole("checkbox", { name: "Use source-specific Digest category", exact: true });
+  await digestOverride.check();
+  if (!await root.getByRole("textbox", { name: "Digest category name" }).isVisible()) throw Error("Enabling a Digest override hid its category field.");
+  if (!await digestOverride.evaluate(input => input === document.activeElement)) throw Error("Enabling a Digest override lost checkbox focus.");
+  await digestOverride.uncheck();
   await root.getByRole("button", { name: "Save", exact: true }).click();
   const after = await page.evaluate(() => structuredClone(window.__streamlinedFixture.controller.config));
   const journal = after.rules.find((rule) => rule.id === "journal-source");

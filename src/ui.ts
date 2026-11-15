@@ -440,7 +440,8 @@ class MirrorsModal extends Modal {
     excludeSupportFilesFromSearch: boolean;
   };
   private settingsTab: "connection" | "recognition" | "updates" | "storage" = "connection";
-  private settingsAdvancedOpen = false;
+  private readonly settingsDisclosures = new Set<string>();
+  private readonly sourceDisclosures = new Set<string>();
   private settingsProfilesBaseline: Profile[] = [];
   private settingsCleanupPromptBaseline = DEFAULT_CLEANUP_PROMPT;
   private browserPath = ROOT;
@@ -808,7 +809,7 @@ class MirrorsModal extends Modal {
   }
   private beginSettingsDraft(returnScreen: Screen) {
     this.settingsReturnScreen = returnScreen;
-    this.settingsAdvancedOpen = false;
+    this.settingsDisclosures.clear();
     const controller = this.c as Controller & {
       provider?: "api" | "subscription";
       concurrency?: number;
@@ -890,6 +891,10 @@ class MirrorsModal extends Modal {
   private render(scrollOverride?: number) {
     const view = this.screen === "browser" ? `${this.screen}:${this.browserFrom}:${this.browserPath}`
       : this.screen === "settings" ? `${this.screen}:${this.settingsTab}` : this.screen;
+    const active = this.body.ownerDocument.activeElement;
+    const focusedCheckbox = view === this.renderedView && ["settings", "editor"].includes(this.screen) &&
+      active?.matches('input[type="checkbox"]') && this.body.contains(active)
+      ? (active as HTMLInputElement).labels?.[0]?.textContent : undefined;
     const scroll = scrollOverride ?? (view === this.renderedView ? this.body.scrollTop : 0);
     this.renderedView = view;
     const mutationBusy = this.excludeBusy || this.outputFolderCreateBusy || !!this.reconciliationBusyPage ||
@@ -1006,6 +1011,11 @@ class MirrorsModal extends Modal {
     else if (this.screen === "page-reconciliation") this.renderPageReconciliation();
     else this.renderDetail();
     this.body.scrollTop = scroll;
+    if (focusedCheckbox) {
+      const checkboxes = Array.from(this.body.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'));
+      checkboxes.find(input => input.getClientRects().length && !input.closest("details:not([open])") &&
+        input.labels?.[0]?.textContent === focusedCheckbox)?.focus({ preventScroll: true });
+    }
   }
   private refreshLive() {
     if (this.screen === "home") this.refreshHome();
@@ -1030,6 +1040,7 @@ class MirrorsModal extends Modal {
     else if (this.screen === "costs") this.refreshCosts();
     else if (this.screen === "storage") this.render();
     else if (this.screen === "settings") {
+      if (this.settingsDraft?.provider !== "subscription") return;
       const controller = this.c as Controller & {
         subscriptionStatus?: { connected: boolean; needsSignIn?: boolean; pairingPending?: boolean; status: string; email?: string };
         subscriptionPairing?: { code: string; addresses: string[]; status: string; expiresAt: number };
@@ -2516,6 +2527,7 @@ class MirrorsModal extends Modal {
       };
     }
     this.editorRule = JSON.parse(JSON.stringify(rule));
+    this.sourceDisclosures.clear();
     this.editorProfile =
       this.c.config.profiles.find((p) => p.id === rule.profileId) ??
       this.c.config.profiles[0];
@@ -2541,15 +2553,17 @@ class MirrorsModal extends Modal {
       el(notice, "strong", "Synced settings need review");
       el(notice, "p", "Close this form, then resolve the conflict on the source row. This keeps the current form draft intact.", "st-caption");
     }
-    const sourceSection = el(root, "section", undefined, "st-form-section st-source-section");
-    sectionHeading(sourceSection, "Source", "folder");
-    const sourceHeader = el(sourceSection, "header", undefined, "st-source-header");
-    el(sourceHeader, "p", base(r.source).replace(/\.note$/i, ""), "st-source-title");
-    const source = el(sourceHeader, "div", undefined, "st-source-choice");
+    const singleNotebookSource = r.source.toLowerCase().endsWith(".note");
+    const identity = el(root, "section", undefined, "st-source-identity");
+    const icon = el(identity, "span", undefined, "st-source-icon");
+    icon.setAttribute("aria-hidden", "true");
+    setIcon(icon, singleNotebookSource ? "file-text" : "folder");
+    const identityCopy = el(identity, "div", undefined, "st-source-identity-copy");
+    el(identityCopy, "p", base(r.source).replace(/\.note$/i, ""), "st-source-title");
     const sourcePath = this.sourceLabel(r.source);
-    el(source, "p", sourcePath, "st-caption st-source-path").title = sourcePath;
+    el(identityCopy, "p", sourcePath, "st-caption st-source-path");
     btn(
-      source,
+      identity,
       "Change",
       () => {
         this.browserFrom = "edit";
@@ -2564,7 +2578,9 @@ class MirrorsModal extends Modal {
       },
       "st-button st-text-button st-source-change",
     );
-    const singleNotebookSource = r.source.toLowerCase().endsWith(".note");
+    const sourceSection = el(root, "section", undefined, "st-form-section st-source-section st-configuration-card");
+    el(sourceSection, "h2", "Scope", "st-section-heading");
+    const sourceHeader = el(sourceSection, "div", undefined, "st-source-header");
     const sourceIncluded = r.enabled && !(singleNotebookSource && excluded(r.source, r.source, r.exclude));
     this.toggle(
       sourceHeader,
@@ -2595,8 +2611,8 @@ class MirrorsModal extends Modal {
         () => this.openNotebookSelection(r),
         "st-button st-text-button",
       );
-      const exclusions = el(sourceSection, "details", undefined, "st-source-exclusions st-settings-disclosure");
-      el(exclusions, "summary", r.exclude.length ? `Exclusions (${r.exclude.length})` : "Exclusions");
+      const exclusions = this.configurationDisclosure(root, this.sourceDisclosures, "exclusions",
+        r.exclude.length ? `Exclusions (${r.exclude.length})` : "Exclusions", "st-source-exclusions");
       this.textarea(
         exclusions,
         "Excluded paths or patterns",
@@ -2605,8 +2621,7 @@ class MirrorsModal extends Modal {
         "One relative path or pattern per line, for example 25*.note",
       );
     }
-    const syncOptions = el(root, "details", undefined, "st-settings-disclosure st-source-sync-options");
-    el(syncOptions, "summary", "Sync and Digests");
+    const syncOptions = this.configurationDisclosure(root, this.sourceDisclosures, "sync", "Sync and Digests", "st-source-sync-options");
     const sharedMirrorField = el(syncOptions, "div", undefined, "st-shared-mirror-field");
     void this.renderSharedMirrors(sharedMirrorField, r);
 
@@ -2635,8 +2650,8 @@ class MirrorsModal extends Modal {
       category.maxLength = 128;
     }
 
-    const outputSection = el(root, "section", undefined, "st-form-section st-output-section");
-    sectionHeading(outputSection, "Markdown output", "file-text");
+    const outputSection = el(root, "section", undefined, "st-form-section st-output-section st-configuration-card");
+    el(outputSection, "h2", "Markdown output", "st-section-heading");
     const outputChoice = el(outputSection, "div", undefined, "st-output-choice");
     const outputFolderInput = this.text(
       outputChoice,
@@ -2663,8 +2678,8 @@ class MirrorsModal extends Modal {
       },
       "st-button st-text-button",
     );
-    const transcription = el(root, "section", undefined, "st-form-section st-recognition-section");
-    sectionHeading(transcription, "Recognition", "scan-text");
+    const transcription = el(root, "section", undefined, "st-form-section st-recognition-section st-configuration-card");
+    el(transcription, "h2", "Recognition", "st-section-heading");
     const ruleWithAutomatic = r as FolderRule & { autoRecognize?: boolean };
     this.toggle(
       transcription,
@@ -2724,20 +2739,15 @@ class MirrorsModal extends Modal {
     );
     const sourceOverrides = el(sourceProfile, "div", undefined, "st-source-profile-overrides");
     this.modelPicker(sourceOverrides, "Model", this.modelDraft, (v) => (this.modelDraft = v));
-    this.qualitySlider(sourceOverrides, this.qualityDraft, (value) => { this.qualityDraft = value; });
-    this.text(
-      sourceOverrides,
-      "Responses API endpoint",
-      this.endpointDraft,
-      (v) => (this.endpointDraft = v),
-    );
+    this.qualityControl(sourceOverrides, this.qualityDraft, (value) => { this.qualityDraft = value; });
     const generalProfile = this.c.config.profiles.find((profile) => profile.id === "general");
     const formattingEnabled = this.editorPreserveFormattingDraft ?? generalProfile?.preserveFormatting ?? true;
-    if (this.editorUsesGeneral) {
-      el(sourceOverrides, "p", "Using General formatting settings.", "st-caption st-formatting-inherited-note");
-    } else {
+    const advanced = this.configurationDisclosure(sourceOverrides, this.sourceDisclosures, "recognition", "Advanced recognition");
+    const advancedFields = el(advanced, "div", undefined, "st-source-advanced-fields");
+    this.text(advancedFields, "Responses API endpoint", this.endpointDraft, (v) => (this.endpointDraft = v));
+    if (!this.editorUsesGeneral) {
       this.select(
-        sourceOverrides,
+        advancedFields,
         "Handwriting formatting",
         this.editorPreserveFormattingDraft === undefined ? "default" : this.editorPreserveFormattingDraft ? "on" : "off",
         [["default", `Use default (${(generalProfile?.preserveFormatting ?? true) ? "On" : "Off"})`], ["on", "On"], ["off", "Off"]],
@@ -2748,7 +2758,7 @@ class MirrorsModal extends Modal {
         "Recognizes marked headings, bold, strikethrough, highlights, underlines and clear hand-drawn tables while keeping paragraphs readable.",
       );
       const formattingGuide = this.textarea(
-        sourceOverrides,
+        advancedFields,
         "Formatting cues",
         this.editorFormattingGuideDraft ?? generalProfile?.formattingGuide ?? DEFAULT_FORMATTING_GUIDE,
         (value) => { this.editorFormattingGuideDraft = value; },
@@ -2756,14 +2766,14 @@ class MirrorsModal extends Modal {
       );
       formattingGuide.maxLength = 10_000;
       formattingGuide.disabled = !formattingEnabled;
-      const guideReset = btn(sourceOverrides, "Reset cues to default", () => {
+      const guideReset = btn(advancedFields, "Reset cues to default", () => {
         this.editorFormattingGuideDraft = undefined;
         this.render();
       }, "st-button st-text-button");
       guideReset.disabled = this.editorFormattingGuideDraft === undefined;
     }
     if (formattingEnabled && this.c.config.showPageHeadings === true)
-      el(sourceOverrides, "p", "Generated page headings are omitted for this source.", "st-caption st-formatting-headings-note");
+      el(advancedFields, "p", "Generated page headings are omitted for this source.", "st-caption st-formatting-headings-note");
     const instructions = el(
       transcription,
       "section",
@@ -2788,12 +2798,13 @@ class MirrorsModal extends Modal {
 
     sourceOverrides.hidden = this.editorUsesGeneral;
     instructions.hidden = this.editorUsesGeneral;
-    root.append(outputSection);
+    const exclusions = root.querySelector(".st-source-exclusions");
+    if (exclusions) root.append(exclusions);
     root.append(syncOptions);
 
     const sourceState = this.displayStore.notebooks[r.source];
     if (r.source.toLowerCase().endsWith(".note") && sourceState) {
-      const notebookActions = el(root, "section", undefined, "st-form-section st-notebook-actions");
+      const notebookActions = el(root, "section", undefined, "st-form-section st-notebook-actions st-configuration-card");
       el(notebookActions, "h2", "Notebook actions", "st-section-heading");
       if (this.sourceEditorDraftDirty())
         el(notebookActions, "p", "Save source settings before running notebook actions.", "st-caption st-actions-draft-note");
@@ -2807,7 +2818,7 @@ class MirrorsModal extends Modal {
       () => this.removeRule(),
       "st-button st-danger",
     );
-    this.organizeFormRows(root, ".st-form-section > .st-check-row, .st-source-header > .st-check-row, .st-source-profile-mode > .st-check-row, .st-source-profile-overrides > .st-field, .st-source-scope > .st-check-row, .st-guidance-section > .st-field, .st-output-choice > .st-field, .st-digest-settings > :is(.st-field, .st-check-row)");
+    this.organizeFormRows(root, ".st-form-section > .st-check-row, .st-source-header > .st-check-row, .st-source-profile-mode > .st-check-row, .st-source-profile-overrides > .st-field, .st-source-advanced-fields > .st-field, .st-source-scope > .st-check-row, .st-guidance-section > .st-field, .st-output-choice > .st-field, .st-digest-settings > :is(.st-field, .st-check-row)");
     const actions = el(this.footer, "div", undefined, "st-actions");
     btn(actions, "Cancel", () => this.finishSourceEditor(), "st-button st-text-button");
     btn(actions, "Save", () => void this.saveRule(), "st-button st-primary");
@@ -4109,7 +4120,8 @@ class MirrorsModal extends Modal {
     const recognitionPanel = addPanel("recognition", "Recognition");
     const updatesPanel = addPanel("updates", "Updates");
     const storagePanel = addPanel("storage", "Storage");
-    const connection = el(connectionPanel, "section", undefined, "st-settings-section st-settings-connection");
+    const connection = el(connectionPanel, "section", undefined, "st-settings-section st-settings-connection st-configuration-card");
+    el(connection, "h2", "Recognition provider", "st-section-heading");
     const controller = this.c as Controller & {
       provider?: "api" | "subscription";
       concurrency?: number;
@@ -4360,8 +4372,10 @@ class MirrorsModal extends Modal {
         }
       }
     }
+    const output = el(connectionPanel, "section", undefined, "st-settings-section st-configuration-card");
+    el(output, "h2", "Transcript output", "st-section-heading");
     const defaultOutputInput = this.text(
-      connection,
+      output,
       "Default transcript folder",
       d.defaultOutput,
       (value) => { d.defaultOutput = value; },
@@ -4369,7 +4383,7 @@ class MirrorsModal extends Modal {
     );
     const defaultOutputField = defaultOutputInput.closest<HTMLElement>(".st-field");
     defaultOutputField?.classList.add("st-default-output-field");
-    const defaultOutputControls = el(defaultOutputField ?? connection, "div", undefined, "st-default-output-controls");
+    const defaultOutputControls = el(defaultOutputField ?? output, "div", undefined, "st-default-output-controls");
     defaultOutputControls.append(defaultOutputInput);
     btn(defaultOutputControls, "Choose folder", () => {
       this.folderPickerPurpose = "default-output";
@@ -4379,10 +4393,11 @@ class MirrorsModal extends Modal {
       this.screen = "output-folders";
       this.render();
     }, "st-button st-text-button st-default-output-choose");
-    const usage = el(connectionPanel, "section", undefined, "st-form-section st-settings-section st-settings-costs");
+    const usage = el(connectionPanel, "section", undefined, "st-settings-section st-settings-costs st-configuration-card st-settings-action-row");
     el(usage, "h2", "Usage and costs", "st-section-heading");
     btn(usage, "Review Costs", () => this.openCosts(), "st-button st-text-button st-settings-review-costs");
-    const runBehavior = el(updatesPanel, "section", undefined, "st-form-section st-settings-section st-run-behavior");
+    const runBehavior = el(updatesPanel, "section", undefined, "st-settings-section st-run-behavior st-configuration-card");
+    el(runBehavior, "h2", "Run behavior", "st-section-heading");
     this.toggle(
       runBehavior,
       "AI recognition",
@@ -4397,23 +4412,26 @@ class MirrorsModal extends Modal {
       (v) => (d.autoEnabled = v),
       "Runs while Obsidian is active",
     );
-    this.automaticCheckControl(runBehavior, d.automaticCheck, (value) => { d.automaticCheck = value; }, d.automaticCheckRecentPages, (value) => { d.automaticCheckRecentPages = value; });
-    this.number(runBehavior, "Simultaneous requests", d.concurrency, 1, 32, (v) => (d.concurrency = v));
-    this.number(runBehavior, "Check interval (minutes)", d.intervalMinutes, 1, 60, (v) => (d.intervalMinutes = v));
+    const checks = el(updatesPanel, "section", undefined, "st-settings-section st-configuration-card");
+    this.automaticCheckControl(checks, d.automaticCheck, (value) => { d.automaticCheck = value; }, d.automaticCheckRecentPages, (value) => { d.automaticCheckRecentPages = value; });
+    this.number(checks, "Check interval (minutes)", d.intervalMinutes, 1, 60, (v) => (d.intervalMinutes = v));
+    const advancedUpdates = this.configurationDisclosure(updatesPanel, this.settingsDisclosures, "updates", "Advanced updates", "st-advanced-updates");
+    const updateOptions = el(advancedUpdates, "div", undefined, "st-settings-section");
+    this.number(updateOptions, "Simultaneous requests", d.concurrency, 1, 32, (v) => (d.concurrency = v));
+    const transientRetries = this.number(updateOptions, "Transient retries", d.transientRetries, 0, 5, (value) => { d.transientRetries = value; });
+    const retryField = transientRetries.closest<HTMLElement>(".st-field");
+    if (retryField) this.help(retryField, "Retries temporary connection or service failures. Set to 0 to disable retries.", "Transient retries");
     const general = d.profiles.find((p) => p.id === "general") ?? d.profiles[0];
+    const library = el(recognitionPanel, "section", undefined, "st-settings-section st-settings-prompts st-configuration-card");
     if (general) {
-      const defaults = el(recognitionPanel, "section", undefined, "st-form-section st-settings-section st-recognition-defaults");
+      const defaults = el(recognitionPanel, "section", undefined, "st-settings-section st-recognition-defaults st-configuration-card");
+      recognitionPanel.prepend(defaults);
+      el(defaults, "h2", "Recognition defaults", "st-section-heading");
       this.modelPicker(defaults, "Default model", general.model, (v) => (general.model = v));
-      this.qualitySlider(defaults, general.quality ?? "fast", (value) => { general.quality = value; });
-      const advanced = el(recognitionPanel, "details", undefined, "st-settings-disclosure");
-      advanced.open = this.settingsAdvancedOpen;
-      advanced.addEventListener("toggle", () => { if (advanced.isConnected) this.settingsAdvancedOpen = advanced.open; });
-      el(advanced, "summary", "Advanced recognition");
+      this.qualityControl(defaults, general.quality ?? "fast", (value) => { general.quality = value; });
+      const advanced = this.configurationDisclosure(recognitionPanel, this.settingsDisclosures, "recognition", "Advanced recognition");
       const advancedRows = el(advanced, "div", undefined, "st-settings-section");
       this.text(advancedRows, "Responses API endpoint", general.endpoint, (v) => (general.endpoint = v));
-      const transientRetries = this.number(advancedRows, "Transient retries", d.transientRetries, 0, 5, (value) => { d.transientRetries = value; });
-      const retryField = transientRetries.closest<HTMLElement>(".st-field");
-      if (retryField) this.help(retryField, "Automatically retries temporary connection or service failures. Set to 0 to disable retries.", "Transient retries");
       const formattingEnabled = general.preserveFormatting ?? true;
       this.toggle(
         advancedRows,
@@ -4436,17 +4454,16 @@ class MirrorsModal extends Modal {
       formattingGuide.maxLength = 10_000;
       formattingGuide.disabled = !formattingEnabled;
     }
-    const library = el(recognitionPanel, "section", undefined, "st-form-section st-settings-section st-settings-prompts");
-    el(library, "h2", "Prompts", "st-section-heading");
+    const libraryHeader = el(library, "div", undefined, "st-settings-action-row");
+    el(libraryHeader, "h2", "Prompts", "st-section-heading");
     if (this.c.promptLibrary)
-      btn(library, "Open prompt library", () => { this.screen = "prompts"; this.render(); }, "st-button st-text-button st-prompt-library-open");
+      btn(libraryHeader, "Open prompt library", () => { this.screen = "prompts"; this.render(); }, "st-button st-text-button st-prompt-library-open");
     else
       el(library, "p", "Saved prompt templates are unavailable.", "st-caption");
-    const cleanupDefaults = el(library, "details", undefined, "st-settings-disclosure st-cleanup-defaults");
-    el(cleanupDefaults, "summary", "Default cleanup instructions");
+    const cleanupDefaults = this.configurationDisclosure(library, this.settingsDisclosures, "cleanup", "Default cleanup instructions", "st-cleanup-defaults");
     const defaultCleanupPrompt = this.textarea(cleanupDefaults, "Default cleanup instructions", d.cleanupPrompt, (value) => { d.cleanupPrompt = value; });
     defaultCleanupPrompt.maxLength = 20000;
-    const presentation = el(recognitionPanel, "section", undefined, "st-form-section st-settings-section st-settings-presentation");
+    const presentation = el(recognitionPanel, "section", undefined, "st-settings-section st-settings-presentation st-configuration-card");
     el(presentation, "h2", "Appearance", "st-section-heading");
     const pageHeadings = this.toggle(
       presentation,
@@ -4458,9 +4475,8 @@ class MirrorsModal extends Modal {
         : "Presentation only; changing this does not run recognition again.",
     );
     pageHeadings.disabled = (general?.preserveFormatting ?? true) === true;
-    const storage = el(storagePanel, "section", undefined, "st-form-section st-settings-section st-settings-storage");
-    el(storage, "h2", "Storage", "st-section-heading");
-    el(storage, "p", "Choose where plugin support files live. They stay separate from readable transcripts.", "st-caption st-section-help");
+    const storage = el(storagePanel, "section", undefined, "st-settings-section st-settings-storage st-configuration-card");
+    el(storage, "h2", "Support files", "st-section-heading");
     const supportFolderInput = this.text(
       storage,
       "Support folder",
@@ -4494,8 +4510,9 @@ class MirrorsModal extends Modal {
       (value) => { d.excludeSupportFilesFromSearch = value; },
       "Keeps plugin data out of native Search and Quick Switcher results. It does not affect transcript files.",
     );
-    el(storage, "p", "Review saved recognition history and cached source data. Cleanup is always started manually.", "st-caption");
-    btn(storage, "Review storage", () => this.openStorage(), "st-button st-text-button st-review-storage");
+    const savedData = el(storagePanel, "section", undefined, "st-settings-section st-configuration-card st-settings-action-row");
+    el(savedData, "h2", "Saved data", "st-section-heading");
+    btn(savedData, "Review storage", () => this.openStorage(), "st-button st-text-button st-review-storage");
     this.organizeFormRows(root, ".st-settings-section > .st-field, .st-settings-section > .st-check-row");
     const actions = el(this.footer, "div", undefined, "st-actions");
     btn(
@@ -4653,6 +4670,17 @@ class MirrorsModal extends Modal {
       },
       "st-button st-primary",
     );
+  }
+  private configurationDisclosure(parent: HTMLElement, opened: Set<string>, key: string, label: string, classes = "") {
+    const details = el(parent, "details", undefined, `st-settings-disclosure ${classes}`);
+    details.open = opened.has(key);
+    details.addEventListener("toggle", () => {
+      if (!details.isConnected) return;
+      if (details.open) opened.add(key);
+      else opened.delete(key);
+    });
+    el(details, "summary", label);
+    return details;
   }
   private organizeFormRows(root: HTMLElement, rows: string) {
     for (const row of Array.from(root.querySelectorAll<HTMLElement>(rows))) {
@@ -6585,26 +6613,38 @@ class MirrorsModal extends Modal {
     this.help(field, "Choose a listed model or enter the exact model name supplied by your provider.", label);
     return select;
   }
-  private qualitySlider(parent: HTMLElement, quality: "fast" | "balanced" | "careful", change: (value: "fast" | "balanced" | "careful") => void) {
+  private settingsChoices<T extends string>(
+    field: HTMLElement,
+    title: HTMLElement,
+    choices: readonly { value: T; label: string }[],
+    selected: T,
+    change: (value: T) => void,
+  ) {
+    const group = el(field, "div", undefined, "st-settings-choices");
+    title.id = `st-choice-${crypto.randomUUID()}`;
+    group.setAttribute("role", "radiogroup");
+    group.setAttribute("aria-labelledby", title.id);
+    for (const choice of choices) {
+      const label = el(group, "label");
+      const input = el(label, "input");
+      input.type = "radio";
+      input.name = title.id;
+      input.value = choice.value;
+      input.checked = selected === choice.value;
+      el(label, "span", choice.label);
+      input.addEventListener("change", () => {
+        if (input.checked) change(choice.value);
+      });
+    }
+  }
+  private qualityControl(parent: HTMLElement, quality: "fast" | "balanced" | "careful", change: (value: "fast" | "balanced" | "careful") => void) {
     const field = el(parent, "div", undefined, "st-field st-quality-field st-quality-control");
-    el(field, "span", "Recognition quality");
-    const slider = el(field, "input") as HTMLInputElement;
-    slider.type = "range";
-    slider.min = "0";
-    slider.max = "2";
-    slider.step = "1";
-    slider.value = String(Math.max(0, QUALITY.indexOf(quality)));
-    slider.setAttribute("aria-label", "Recognition quality");
-    slider.setAttribute("aria-valuetext", qualityLabel(quality));
-    const labels = el(field, "div", undefined, "st-quality-labels");
-    QUALITY.forEach((item) => el(labels, "span", qualityLabel(item)));
-    const summary = el(field, "p", qualitySummary(quality), "st-quality-summary");
-    slider.addEventListener("input", () => {
-      const value = QUALITY[Number(slider.value)] ?? "fast";
-      slider.setAttribute("aria-valuetext", qualityLabel(value));
+    const title = el(field, "span", "Recognition quality");
+    this.settingsChoices(field, title, QUALITY.map(value => ({ value, label: qualityLabel(value) })), quality, value => {
       setText(summary, qualitySummary(value));
       change(value);
     });
+    const summary = el(field, "p", qualitySummary(quality), "st-quality-summary");
   }
   private automaticCheckControl(
     parent: HTMLElement,
@@ -6615,19 +6655,16 @@ class MirrorsModal extends Modal {
     label = "Automatic checks",
   ) {
     const field = el(parent, "div", undefined, "st-field st-quality-field st-quality-control st-automatic-check-field st-automatic-check-control");
-    el(field, "span", label);
-    const slider = el(field, "input") as HTMLInputElement;
-    slider.type = "range";
-    slider.min = "0";
-    slider.max = "2";
-    slider.step = "1";
-    const modes = ["new", "recent", "all"] as const;
-    const labels = ["New pages", "Recent edits", "All changes"];
-    slider.value = String(modes.indexOf(mode));
-    slider.setAttribute("aria-label", label);
-    slider.setAttribute("aria-valuetext", labels[modes.indexOf(mode)]);
-    const labelRow = el(field, "div", undefined, "st-quality-labels st-automatic-check-labels");
-    labels.forEach((item) => el(labelRow, "span", item));
+    const title = el(field, "span", label);
+    this.settingsChoices(field, title, [
+      { value: "new", label: "New pages" },
+      { value: "recent", label: "Recent edits" },
+      { value: "all", label: "All changes" },
+    ] as const, mode, value => {
+      setText(summary, this.automaticCheckSummary(value));
+      recentField.hidden = value !== "recent";
+      change(value);
+    });
     const summary = el(field, "p", this.automaticCheckSummary(mode), "st-quality-summary st-automatic-check-summary");
     const recent = this.number(field, "Last N pages", recentPages, 1, 100, changeRecentPages);
     const recentField = recent.closest(".st-field") as HTMLElement;
@@ -6640,13 +6677,6 @@ class MirrorsModal extends Modal {
     recentField.hidden = mode !== "recent";
     recent.setAttribute("aria-label", "Recent pages to check");
     this.help(field, "This default is local to this device. Source-specific choices are saved with source settings and sync. New pages checks every page ID and page order, including insertions in the middle, but it cannot detect changed ink on older pages. Recent edits also checks the last N pages and all new page IDs; older ink changes may be missed. All changes scans all page content. Manual Update always checks full content and reuses unchanged cached recognition. If page IDs are missing or ambiguous, automatic checking asks for Manual Update instead of silently scanning everything.", label);
-    slider.addEventListener("input", () => {
-      const value = modes[Number(slider.value)] ?? "new";
-      slider.setAttribute("aria-valuetext", labels[modes.indexOf(value)]);
-      setText(summary, this.automaticCheckSummary(value));
-      recentField.hidden = value !== "recent";
-      change(value);
-    });
   }
   private automaticCheckSummary(mode: "new" | "recent" | "all") {
     return mode === "new" ? "Checks for new pages and page-order changes." : mode === "recent" ? "Checks new pages and recent pages for changed ink." : "Checks all page content for changes.";

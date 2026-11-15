@@ -2,7 +2,7 @@
 
 Supernote Transcripts is an Obsidian plugin that reads selected Supernote `.note` notebooks and creates or updates Markdown transcripts using an AI provider you configure. It keeps notebook files as read-only source material. You choose which notebooks to mirror and where to save the Markdown.
 
-Version **0.17.0** is available as a prerelease. Download the manual-install ZIP from the [v0.17.0 GitHub release](https://github.com/ofples/supernote-transcripts/releases/tag/v0.17.0). The optional **Supernote Bridge 0.6.1** Android app is available from the [Bridge 0.6.1 release](https://github.com/ofples/supernote-transcripts/releases/tag/bridge-v0.6.1). See [installation](docs/installation.md) and [validation notes](VALIDATION.md) for setup and compatibility.
+Version **0.17.1** is available as a prerelease. Download the manual-install ZIP from the [v0.17.1 GitHub release](https://github.com/ofples/supernote-transcripts/releases/tag/v0.17.1). The optional **Supernote Bridge 0.6.1** Android app is available from the [Bridge 0.6.1 release](https://github.com/ofples/supernote-transcripts/releases/tag/bridge-v0.6.1). See [installation](docs/installation.md) and [validation notes](VALIDATION.md) for setup and compatibility.
 
 ## Start here
 

@@ -1,5 +1,9 @@
 # Supernote Transcripts
 
+## 0.17.1 — clearer plugin and source settings
+
+Settings group related controls, give quality and check depth labeled choices, and keep Save visible while the form scrolls. Source settings put scope and transcript output up front. See the [0.17.1 release notes](release-notes/0.17.1.md).
+
 ## 0.17.0 — source selection, transcription and settings
 
 Obsidian's command palette can add saved sources or start one-time transcription for a file or folder. The desktop status bar opens activity and actionable issues. Settings organize provider connection, recognition, updates, and storage. Recognition and cleanup prompts can be saved as reusable revisions. See the [0.17.0 release notes](release-notes/0.17.0.md).

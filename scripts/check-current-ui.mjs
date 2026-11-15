@@ -599,18 +599,21 @@ async function inspectViewport(platform, viewport, label) {
   await root.getByLabel("Exclude support files from Search and Quick Switcher", { exact: true }).uncheck();
   await activeTabs.getByRole("tab", { name: "Updates" }).click();
   const automaticChecks = root.locator(".st-automatic-check-control").first();
-  const automaticSlider = automaticChecks.locator('input[type="range"]');
-  const automaticLabels = await automaticChecks.locator(".st-automatic-check-labels span").allTextContents();
-  check(automaticLabels.join("|") === "New pages|Recent edits|All changes", `${label}: automatic check slider labels are missing or out of order: ${JSON.stringify(automaticLabels)}`);
-  check(await automaticSlider.inputValue() === "0" && await automaticChecks.locator(".st-automatic-check-summary").innerText().then((text) => /new pages and page-order/i.test(text)), `${label}: default automatic check position or summary is incorrect`);
-  const setAutomaticPosition = async (position) => automaticSlider.evaluate((input, value) => { input.value = String(value); input.dispatchEvent(new Event("input", { bubbles: true })); }, position);
-  await setAutomaticPosition(1);
+  const automaticLabels = await automaticChecks.locator(".st-settings-choices label").allTextContents();
+  check(automaticLabels.join("|") === "New pages|Recent edits|All changes", `${label}: automatic check choices are missing or out of order: ${JSON.stringify(automaticLabels)}`);
+  const newPages = automaticChecks.getByRole("radio", { name: "New pages", exact: true });
+  const recentEdits = automaticChecks.getByRole("radio", { name: "Recent edits", exact: true });
+  const allChanges = automaticChecks.getByRole("radio", { name: "All changes", exact: true });
+  check(await newPages.isChecked() && await automaticChecks.locator(".st-automatic-check-summary").innerText().then((text) => /new pages and page-order/i.test(text)), `${label}: default automatic check choice or summary is incorrect`);
+  await newPages.focus();
+  await page.keyboard.press("ArrowRight");
+  check(await recentEdits.isChecked(), `${label}: keyboard selection did not move to Recent edits`);
   const globalRecentCount = automaticChecks.locator(".st-automatic-check-recent-pages");
   const globalRecentVisible = await globalRecentCount.isVisible();
   const globalRecentValue = await globalRecentCount.inputValue();
   check(globalRecentVisible && globalRecentValue === "5" && await automaticChecks.locator(".st-automatic-check-count-field").isVisible(), `${label}: Recent edits does not reveal the default five-page count: visible=${globalRecentVisible}, value=${globalRecentValue}`);
   await globalRecentCount.fill("8");
-  await setAutomaticPosition(2);
+  await allChanges.check();
   check(await globalRecentCount.isHidden() && await automaticChecks.locator(".st-automatic-check-count-field").isHidden() && await automaticChecks.locator(".st-automatic-check-summary").innerText().then((text) => /all page content/i.test(text)), `${label}: All changes did not hide the count row or update its summary`);
   await activeTabs.getByRole("tab", { name: "Storage" }).click();
   check(await root.getByLabel("Support folder", { exact: true }).inputValue() === "Reference" && !(await root.getByLabel("Hide support folder in File Explorer", { exact: true }).isChecked()) && !(await root.getByLabel("Exclude support files from Search and Quick Switcher", { exact: true }).isChecked()), `${label}: changing settings tabs discarded the storage draft`);
@@ -623,8 +626,7 @@ async function inspectViewport(platform, viewport, label) {
   await root.getByRole("button", { name: "Settings", exact: true }).click();
   await root.getByRole("tab", { name: "Updates" }).click();
   const saveChecks = root.locator(".st-automatic-check-control").first();
-  const saveSlider = saveChecks.locator('input[type="range"]');
-  await saveSlider.evaluate((input) => { input.value = "1"; input.dispatchEvent(new Event("input", { bubbles: true })); });
+  await saveChecks.getByRole("radio", { name: "Recent edits", exact: true }).check();
   await saveChecks.locator(".st-automatic-check-recent-pages").fill("8");
   await root.getByRole("tab", { name: "Storage" }).click();
   await root.getByLabel("Support folder", { exact: true }).fill("Reference");
@@ -638,7 +640,10 @@ async function inspectViewport(platform, viewport, label) {
   await page.evaluate(() => { window.__streamlinedFixture.controller.actionCounters.setStoragePreferences = 0; });
   await root.getByRole("button", { name: "Settings", exact: true }).click();
   await root.getByRole("tab", { name: "Updates" }).click();
-  check(await root.locator(".st-automatic-check-control").first().locator('input[type="range"]').inputValue() === "1" && await root.locator(".st-automatic-check-control").first().locator(".st-automatic-check-recent-pages").inputValue() === "8", `${label}: saved automatic check defaults did not reload in settings`);
+  check(await recentEdits.isChecked() && await automaticChecks.locator(".st-automatic-check-recent-pages").inputValue() === "8", `${label}: saved automatic check defaults did not reload in settings`);
+  const advancedUpdates = root.locator(".st-advanced-updates");
+  check(await advancedUpdates.locator("input").first().isHidden(), `${label}: advanced update settings are open by default`);
+  await advancedUpdates.locator("summary").click();
   if (platform === "desktop" || platform === "nomad") {
     for (const fieldName of ["API key", "Simultaneous requests", "Check interval (minutes)"]) {
       await root.getByRole("tab", { name: fieldName === "API key" ? "Connection" : "Updates" }).click();
@@ -663,7 +668,7 @@ async function inspectViewport(platform, viewport, label) {
     }).filter((item) => item.checkboxX !== null));
     check(settingsToggles.length >= 2, `${label}: settings toggle geometry was not found`);
     check(Math.max(...settingsToggles.map((item) => item.checkboxX)) - Math.min(...settingsToggles.map((item) => item.checkboxX)) <= 2, `${label}: settings checkbox centers do not align: ${JSON.stringify(settingsToggles)}`);
-    check(settingsToggles.every((item) => item.helpRight === null || item.helpRight < item.checkboxX - 10),
+    check(settingsToggles.every((item) => item.helpRight === null || item.helpRight > item.checkboxX + 10),
       `${label}: contextual help overlaps a settings checkbox: ${JSON.stringify(settingsToggles)}`);
   }
   const helpButton = root.locator(".st-settings-panel-updates button.st-help-button").first();
@@ -706,9 +711,8 @@ async function inspectViewport(platform, viewport, label) {
   if (platform === "desktop" || platform === "nomad") {
     await root.getByRole("tab", { name: "Recognition" }).click();
     const quality = root.locator(".st-quality-control:not(.st-automatic-check-control)").first();
-    const trackBounds = await quality.locator('input[type="range"]').boundingBox();
-    const labelsBounds = await quality.locator(".st-quality-labels").boundingBox();
-    check(trackBounds && labelsBounds && Math.abs(trackBounds.x - labelsBounds.x) <= 2 && Math.abs(trackBounds.width - labelsBounds.width) <= 2, `${label}: quality slider track and labels have different widths or alignment: ${JSON.stringify({ trackBounds, labelsBounds })}`);
+    const widths = await quality.getByRole("radio").evaluateAll(radios => radios.map(radio => radio.getBoundingClientRect().width));
+    check(widths.length === 3 && Math.min(...widths) > 0 && Math.max(...widths) - Math.min(...widths) <= 2, `${label}: quality choices do not have equal-width targets`);
   }
   await root.getByRole("button", { name: "Back", exact: true }).click();
   await assertOneSettingsLabel("returning home");
@@ -725,7 +729,7 @@ async function inspectViewport(platform, viewport, label) {
   await root.locator(".st-form").waitFor();
   await root.locator(".st-body").evaluate((element) => { element.scrollTop = 0; });
   check(await root.locator(".st-source-title").innerText() === "Reflection", `${label}: single-note editor did not open Reflection`);
-  for (const heading of ["Source", "Markdown output", "Recognition", "Notebook actions"]) {
+  for (const heading of ["Scope", "Markdown output", "Recognition", "Notebook actions"]) {
     check(await root.locator(".st-form").getByRole("heading", { name: heading, exact: true }).isVisible(), `${label}: source editor is missing the ${heading} section heading`);
   }
   check(await root.locator(".st-form .st-source-advanced").count() === 0, `${label}: single-note editor still has a Source Advanced disclosure`);
@@ -737,11 +741,11 @@ async function inspectViewport(platform, viewport, label) {
   check(await automaticInherit.isChecked(), `${label}: new source does not inherit the global automatic check default`);
   await automaticInherit.uncheck();
   let sourceAutomatic = root.locator(".st-form .st-automatic-check-control");
-  check(await sourceAutomatic.locator('input[type="range"]').inputValue() === "1" && await sourceAutomatic.locator(".st-automatic-check-recent-pages").inputValue() === "8", `${label}: source override did not initialize from global Recent edits defaults`);
+  check(await sourceAutomatic.getByRole("radio", { name: "Recent edits", exact: true }).isChecked() && await sourceAutomatic.locator(".st-automatic-check-recent-pages").inputValue() === "8", `${label}: source override did not initialize from global Recent edits defaults`);
   await sourceAutomatic.locator(".st-automatic-check-recent-pages").fill("12");
-  await sourceAutomatic.locator('input[type="range"]').evaluate((input) => { input.value = "2"; input.dispatchEvent(new Event("input", { bubbles: true })); });
+  await sourceAutomatic.getByRole("radio", { name: "All changes", exact: true }).check();
   check(await sourceAutomatic.getByLabel("Last N pages", { exact: true }).isHidden(), `${label}: source All changes still shows Recent pages count`);
-  await sourceAutomatic.locator('input[type="range"]').evaluate((input) => { input.value = "1"; input.dispatchEvent(new Event("input", { bubbles: true })); });
+  await sourceAutomatic.getByRole("radio", { name: "Recent edits", exact: true }).check();
   await root.getByRole("button", { name: "Save", exact: true }).click();
   await page.waitForFunction(() => { const rule = window.__streamlinedFixture.controller.config.rules.find((item) => item.id === "reflection-single"); return rule.automaticCheck === "recent" && rule.automaticCheckRecentPages === 12; });
   await page.evaluate(() => { window.__streamlinedFixture.controller.actionCounters.saveConfig = 0; });

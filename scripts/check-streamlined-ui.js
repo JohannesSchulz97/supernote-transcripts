@@ -79,10 +79,9 @@ for (const platform of platforms) {
   // Reopen and change model, quality, destination and glossary; Save changes only this source profile.
   await root.locator('button[aria-label="Configure Research"]').click();
   await root.locator(".st-model-picker select").selectOption("gpt-6-luna");
-  const slider = root.locator('.st-quality-field input[type="range"]');
-  await slider.fill("2");
-  await slider.dispatchEvent("input");
-  assert((await slider.getAttribute("aria-valuetext")) === "Careful", `${platform}: quality control did not select Careful`);
+  const quality = root.getByRole("radiogroup", { name: "Recognition quality" });
+  await quality.getByRole("radio", { name: "Careful" }).check();
+  assert(await quality.getByRole("radio", { name: "Careful" }).isChecked(), `${platform}: quality control did not select Careful`);
   await root.getByRole("button", { name: "Choose folder", exact: true }).click();
   await root.locator(".st-output-browser").waitFor();
   await root.locator(".st-output-browser .st-browser-entry").filter({ hasText: "Fixture Output" }).click();
@@ -117,7 +116,7 @@ for (const platform of platforms) {
   assert((await root.locator("h1").innerText()) === "Settings", `${platform}: Settings header navigation failed`);
   await root.getByRole("tab", { name: "Recognition" }).click();
   assert(await root.locator(".st-recognition-defaults .st-model-picker select").count() === 1, `${platform}: default model selector is missing`);
-  assert(await root.locator(".st-recognition-defaults .st-quality-field input[type=range]").count() === 1, `${platform}: default recognition quality selector is missing`);
+  assert(await root.locator(".st-recognition-defaults").getByRole("radiogroup", { name: "Recognition quality" }).getByRole("radio").count() === 3, `${platform}: default recognition quality selector is missing`);
   const settingsGear = await root.locator('button[aria-label="Close settings"]').boundingBox();
   assert(settingsGear?.width >= compactTarget && settingsGear?.height >= compactTarget, `${platform}: Settings-screen gear target is too small`);
   const autoBeforeCancel = await page.evaluate(() => ({ enabled: window.__streamlinedFixture.controller.autoEnabled, saves: window.__streamlinedFixture.controller.actionCounters.saveConfig }));

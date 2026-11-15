@@ -1,6 +1,6 @@
 # Installation
 
-Supernote Transcripts is an Obsidian community plugin package with the ID `nomad-transcripts`. Install version 0.17.0 manually from the [GitHub prerelease](https://github.com/ofples/supernote-transcripts/releases/tag/v0.17.0).
+Supernote Transcripts is an Obsidian community plugin package with the ID `nomad-transcripts`. Install version 0.17.1 manually from the [GitHub prerelease](https://github.com/ofples/supernote-transcripts/releases/tag/v0.17.1).
 
 For the complete Nomad-to-desktop setup, including the roles of both Supernote Cloud Sync and Obsidian Sync, follow the [end-to-end workflow](workflow.md) first.
 
@@ -14,7 +14,7 @@ For the complete Nomad-to-desktop setup, including the roles of both Supernote C
 
 ## Install the prerelease ZIP
 
-Download `supernote-transcripts-0.17.0.zip` from the [GitHub v0.17.0 release](https://github.com/ofples/supernote-transcripts/releases/tag/v0.17.0) and extract it. The archive contains a `nomad-transcripts` folder with the three plugin runtime files plus its license and notices. Copy that folder into the active vault configuration's `plugins` directory.
+Download `supernote-transcripts-0.17.1.zip` from the [GitHub v0.17.1 release](https://github.com/ofples/supernote-transcripts/releases/tag/v0.17.1) and extract it. The archive contains a `nomad-transcripts` folder with the three plugin runtime files plus its license and notices. Copy that folder into the active vault configuration's `plugins` directory.
 
 - Desktop: `.obsidian/plugins/nomad-transcripts/`
 - Nomad: `.obsidian-supernote/plugins/nomad-transcripts/` after setting **Settings → Files and links → Override config folder** to `.obsidian-supernote` and restarting Obsidian.
