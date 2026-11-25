@@ -3392,10 +3392,9 @@ class MirrorsModal extends Modal {
       glyph.setAttribute("aria-hidden", "true");
       setIcon(glyph, "folder");
       const crumbs = browserBreadcrumbs(this.browserPath);
-      const visibleCrumbs = this.browserFrom === "edit" ? crumbs : crumbs.slice(-3);
-      for (const [index, crumb] of visibleCrumbs.entries()) {
+      for (const [index, crumb] of crumbs.entries()) {
         if (index) el(breadcrumbs, "span", "›", "st-browser-separator");
-        if (index === visibleCrumbs.length - 1) {
+        if (index === crumbs.length - 1) {
           const current = el(breadcrumbs, "span", crumb.label, "st-browser-current");
           current.setAttribute("aria-current", "location");
           current.title = this.browserPath;
@@ -3953,7 +3952,7 @@ class MirrorsModal extends Modal {
       }
     }
     const source =
-      preferredSource ?? this.c.config.rules.find((rule) => rule.enabled)?.source;
+      preferredSource ?? this.c.config.rules.find((rule) => rule.enabled && !rule.paused)?.source;
     return initialBrowserPath(source ? [source] : [], vaultPath);
   }
   private browseTypedPath() {
